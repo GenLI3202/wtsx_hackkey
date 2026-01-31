@@ -36,3 +36,9 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# api-keys
+dev_doc/my_secret/apikey.json
+
+# null
+nul
