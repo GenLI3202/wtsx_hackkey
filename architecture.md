@@ -197,9 +197,6 @@ flowchart TB
 
 ---
 
-
-
-
 ## Module A: Weather Service 详细设计
 
 ---
@@ -320,7 +317,6 @@ class WeatherService:
 | 资产配置   | 固定配置（内置默认值）                |
 | 地理位置   | 支持 city name 或坐标，慕尼黑必须支持 |
 
-
 ---
 
 ## Module B: Price Service 详细设计
@@ -423,3 +419,182 @@ class PriceService:
 1. **ENTSO-E 覆盖范围** ：ENTSO-E 主要提供 Day-Ahead 价格，FCR/aFRR 价格可能需要其他数据源（如 regelleistung.net）。是否接受：DA 用实时，FCR/aFRR 用历史数据回退？
 2. **国家范围** ：是否需要支持全部 5 国 (DE_LU, AT, CH, HU, CZ)，还是 Hackathon 只演示 1-2 个国家？
 3. **数据格式兼容** ：`PriceData` 是否需要直接兼容你现有的 `data/json/` 格式，以便 Optimizer 无需修改即可使用？
+
+#### Module B 更新确认
+
+| 决策项     | 结论                       |
+| ---------- | -------------------------- |
+| 市场数据源 | 全部四个市场都需要实时数据 |
+| 国家范围   | 仅 DE_LU                   |
+| 数据格式   | 兼容现有 JSON 格式         |
+
+##### MILP 模块 Input of Market Data 数据样例:
+
+The whole data set spans across the whole year of 2024 with 15-minute resolution for DA market and aFRR energy markets, and 4-hour resolution for FCR and aFRR capacity markets. Below we provide sample data snippets for each market.
+
+```json
+# DA Data: For DA data, DE_LU column represents the joint Germany and Luxembourg market prices.
+[
+  {
+    "timestamp":"2024-01-01T00:00:00.000",
+    "DE_LU":39.91,
+    "AT":14.08,
+    "CH":25.97,
+    "HU":0.1,
+    "CZ":0.1
+  },
+  {
+    "timestamp":"2024-01-01T00:15:00.000",
+    "DE_LU":-0.04,
+    "AT":14.08,
+    "CH":25.97,
+    "HU":0.1,
+    "CZ":0.1
+  },
+  {
+    "timestamp":"2024-01-01T00:30:00.001",
+    "DE_LU":-9.01,
+    "AT":0.48,
+    "CH":25.97,
+    "HU":0.1,
+    "CZ":0.1
+  },
+  {
+    "timestamp":"2024-01-01T00:45:00.001",
+    "DE_LU":-29.91,
+    "AT":-3.64,
+    "CH":25.97,
+    "HU":0.1,
+    "CZ":0.1
+  }
+]
+
+### aFRR Energy
+json
+[
+  {
+    "timestamp":"2024-01-01T00:00:00.000",
+    "DE_Pos":50.3411486486,
+    "DE_Neg":29.702029703,
+    "AT_Pos":86.43,
+    "AT_Neg":0.0,
+    "CH_Pos":38.7,
+    "CH_Neg":0.0,
+    "HU_Pos":0.0,
+    "HU_Neg":0.0,
+    "CZ_Pos":144.0,
+    "CZ_Neg":0.0
+  },
+  {
+    "timestamp":"2024-01-01T00:15:00.000",
+    "DE_Pos":46.9457142857,
+    "DE_Neg":40.87125,
+    "AT_Pos":85.25,
+    "AT_Neg":0.17,
+    "CH_Pos":38.8,
+    "CH_Neg":8.32,
+    "HU_Pos":0.0,
+    "HU_Neg":0.6014018923,
+    "CZ_Pos":117.26,
+    "CZ_Neg":53.39
+  },
+  {
+    "timestamp":"2024-01-01T00:30:00.001",
+    "DE_Pos":43.8748717949,
+    "DE_Neg":21.2391111111,
+    "AT_Pos":85.44,
+    "AT_Neg":0.73,
+    "CH_Pos":38.76,
+    "CH_Neg":0.0,
+    "HU_Pos":0.0,
+    "HU_Neg":1.1334522217,
+    "CZ_Pos":140.84,
+    "CZ_Neg":62.84
+  }
+]
+
+### FCR
+json
+[
+  {
+    "timestamp":"2024-01-01T00:00:00.000",
+    "DE":114.8,
+    "AT":114.8,
+    "CH":114.8,
+    "HU":3.1851080706,
+    "CZ":416.0
+  },
+  {
+    "timestamp":"2024-01-01T04:00:00.000",
+    "DE":104.4,
+    "AT":104.4,
+    "CH":104.4,
+    "HU":3.1851080706,
+    "CZ":416.0
+  },
+  {
+    "timestamp":"2024-01-01T08:00:00.001",
+    "DE":68.8,
+    "AT":68.8,
+    "CH":68.8,
+    "HU":3.1851080706,
+    "CZ":416.0
+  },
+  {
+    "timestamp":"2024-01-01T12:00:00.001",
+    "DE":77.6,
+    "AT":77.6,
+    "CH":77.6,
+    "HU":3.1851080706,
+    "CZ":390.4
+  }
+]
+
+### aFRR Capacity
+json
+[
+  {
+    "timestamp":"2024-01-01T08:00:00.001",
+    "DE_Pos":6.33,
+    "DE_Neg":13.07,
+    "AT_Pos":5.57,
+    "AT_Neg":8.5,
+    "CH_Pos":6.66,
+    "CH_Neg":23.08,
+    "HU_Pos":10.048546094,
+    "HU_Neg":13.327884282,
+    "CZ_Pos":29.1639497143,
+    "CZ_Neg":10.6757588259
+  },
+  {
+    "timestamp":"2024-01-01T12:00:00.001",
+    "DE_Pos":4.12,
+    "DE_Neg":15.02,
+    "AT_Pos":3.56,
+    "AT_Neg":9.52,
+    "CH_Pos":4.41,
+    "CH_Neg":20.63,
+    "HU_Pos":0.0,
+    "HU_Neg":0.0,
+    "CZ_Pos":23.342256,
+    "CZ_Neg":4.1489131297
+  },
+]
+```
+
+---
+
+##### 根据数据格式，我整理了各市场的实时数据源情况：
+
+| 市场                    | 字段                          | 数据源选项           | 可行性                 |
+| ----------------------- | ----------------------------- | -------------------- | ---------------------- |
+| **DA**            | `DE_LU`(€/MWh)             | ENTSO-E Transparency | ✅ 确定可获取          |
+| **FCR**           | `DE`(€/MW)                 | regelleistung.net    | ⚠️ 需确认 API 可用性 |
+| **aFRR Capacity** | `DE_Pos`,`DE_Neg`(€/MW)  | regelleistung.net    | ⚠️ 需确认 API 可用性 |
+| **aFRR Energy**   | `DE_Pos`,`DE_Neg`(€/MWh) | regelleistung.net    | ⚠️ 需确认 API 可用性 |
+
+ **问题** ：regelleistung.net 的数据可能需要爬取或有访问限制。如果 48 小时内无法搞定实时接入，是否接受以下回退策略？
+
+> DA 用 ENTSO-E 实时数据；FCR/aFRR 用本地历史数据 + 时间偏移模拟"实时"（例如取去年同一天数据）
+
+这样演示效果一致，但实现风险更低。
