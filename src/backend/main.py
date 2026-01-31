@@ -86,3 +86,33 @@ def get_weather_forecast(
     
     return forecast
 
+
+# ============================================================================
+# Price Service Endpoints
+# ============================================================================
+
+@app.get("/price/forecast", tags=["Price"])
+def get_price_forecast(
+    country: str = Query("DE_LU", description="Country/Bidding zone (DE_LU, AT, CH, HU, CZ)"),
+    hours: int = Query(48, description="Forecast hours (1-168)", ge=1, le=168)
+):
+    """
+    Get electricity market prices for all markets.
+    
+    Returns Day-Ahead, FCR, aFRR Capacity, and aFRR Energy prices for the specified country.
+    """
+    prices = price_service.get_market_prices(
+        country=country,
+        forecast_hours=hours
+    )
+    
+    return {
+        "country": prices.country,
+        "forecast_hours": prices.forecast_hours,
+        "retrieved_at": prices.retrieved_at.isoformat(),
+        "day_ahead": prices.day_ahead.to_gridkey_format() if prices.day_ahead else None,
+        "fcr": prices.fcr.to_gridkey_format() if prices.fcr else None,
+        "afrr_capacity": prices.afrr_capacity.to_gridkey_format() if prices.afrr_capacity else None,
+        "afrr_energy": prices.afrr_energy.to_gridkey_format() if prices.afrr_energy else None,
+    }
+
