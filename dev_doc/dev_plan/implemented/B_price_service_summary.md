@@ -1,13 +1,14 @@
-# Price Service 完成总结 - 2026-01-31
+# Price Service 完成总结 - 2026-02-01 (Updated)
 
 本文档记录 Price Service (Module B) 开发工作，帮助队友快速上手。
 
 ---
 
-## 1. 今日完成内容
+## 1. 完成内容
 
 ### ✅ 代码实现
-- 完整实现 `src/backend/services/price.py` (640+ 行)
+- 完整实现 `src/backend/services/price.py` (700+ 行)
+- 新增 `src/backend/services/regelleistung_loader.py` (300+ 行)
 - 采用**单文件合并**方案，与 Weather Service 结构一致
 
 ### ✅ 实现的类
@@ -19,8 +20,9 @@
 | `PriceData` | 价格时间序列数据模型 |
 | `MarketPrices` | 四种市场价格容器 |
 | `PriceClient` | 市场价格获取客户端 |
-| `PriceForecastFallback` | 历史数据回退机制 |
+| `PriceForecastFallback` | Regelleistung 数据回退机制 |
 | `PriceService` | 对外统一接口 |
+| `RegelleistungLoader` | **新增** XLSX 数据加载器 |
 
 ### ✅ API 端点
 - `GET /price/forecast` - 获取四个市场的价格预测
@@ -32,42 +34,102 @@
 
 ---
 
-## 2. 数据来源
+## 2. 数据来源 (2026-02-01 更新)
 
 | 市场 | 数据来源 | 分辨率 | 状态 |
 |------|----------|--------|------|
-| **Day-Ahead** | Energy-Charts API (真实) | 15分钟 | ✅ 验证通过 |
-| **FCR** | 模拟数据 | 4小时 | ⚠️ Mock |
-| **aFRR Capacity** | 模拟数据 | 4小时 | ⚠️ Mock |
-| **aFRR Energy** | 模拟数据 | 15分钟 | ⚠️ Mock |
+| **Day-Ahead** | Energy-Charts API | 15分钟 | ✅ 真实数据 |
+| **FCR** | Regelleistung.net XLSX | 4小时 | ✅ **真实数据** |
+| **aFRR Capacity** | Regelleistung.net XLSX | 4小时 | ✅ **真实数据** |
+| **aFRR Energy** | Regelleistung.net XLSX | 15分钟 | ✅ **真实数据** |
 
-### 数据验证结果 (DA 价格)
+### 数据验证结果 (2026-02-01)
 
 ```
-时间戳              | 网页价格   | API价格    | 匹配
--------------------------------------------------------
-2026-01-31 19:15 |   134.72  |   134.72   | ✅ (差异: 0.00)
-2026-01-31 21:45 |   106.64  |   106.64   | ✅ (差异: 0.00)
+📊 API Response Summary
+=============================================================
+
+🌍 Country: DE_LU
+⏱️  Forecast Hours: 12
+
+📈 Day-Ahead: 49 records
+   Sample: {'timestamp': '2026-02-01T08:00:00.000', 'DE_LU': 110.16}
+
+⚡ FCR: 3 records (4小时块)
+   08:00 → €79.16/MW
+   12:00 → €77.70/MW
+   16:00 → €96.99/MW
+
+🔋 aFRR Capacity: 3 records (4小时块)
+   08:00 → Pos: €8.12, Neg: €8.91
+   12:00 → Pos: €5.47, Neg: €8.39
+
+⚙️  aFRR Energy: 48 records (15分钟)
+   08:00 → Pos: €45.65, Neg: €32.40
+   08:15 → Pos: €38.88, Neg: €15.28
 ```
 
 ---
 
-## 3. 快速启动指南
+## 3. Regelleistung 数据导入
 
-### 3.1 启动 API 服务器
+### 3.1 数据下载
+
+从 [regelleistung.net/apps/datacenter/](https://www.regelleistung.net/apps/datacenter/) 下载：
+
+1. **FCR - Capacity Market** → Results (XLSX)
+2. **aFRR - Capacity Market** → Results (XLSX)
+3. **aFRR - Energy Market** → Results (XLSX)
+
+> ⚠️ 数据发布时间：D-1 08:30 左右
+
+### 3.2 数据目录
+
+```
+data/prices/regelleistung/
+├── RESULT_OVERVIEW_CAPACITY_MARKET_FCR_2026-02-01_2026-02-01.xlsx
+├── RESULT_OVERVIEW_CAPACITY_MARKET_FCR_2026-02-02_2026-02-02.xlsx
+├── RESULT_OVERVIEW_CAPACITY_MARKET_aFRR_2026-02-01_2026-02-01.xlsx
+├── RESULT_OVERVIEW_CAPACITY_MARKET_aFRR_2026-02-02_2026-02-02.xlsx
+├── RESULT_OVERVIEW_ENERGY_MARKET_aFRR_2026-02-01_2026-02-01.xlsx
+└── RESULT_OVERVIEW_ENERGY_MARKET_aFRR_2026-02-02_2026-02-02.xlsx
+```
+
+### 3.3 使用方式
+
+```python
+from services.regelleistung_loader import RegelleistungLoader
+import datetime
+
+loader = RegelleistungLoader()
+date = datetime.date(2026, 2, 1)
+
+# 加载所有价格
+prices = loader.load_all_prices(date)
+
+# 转换为 PriceService 格式
+ps_format = loader.to_price_service_format(prices)
+# {'fcr': [...], 'afrr_capacity': [...], 'afrr_energy': [...]}
+```
+
+---
+
+## 4. 快速启动指南
+
+### 4.1 启动 API 服务器
 
 ```bash
 cd /Users/shane/Desktop/hackkez/wtsx_hackkey/src/backend
 nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 &
 ```
 
-### 3.2 启动 ngrok 隧道
+### 4.2 启动 ngrok 隧道
 
 ```bash
 ngrok http 8000
 ```
 
-### 3.3 验证 API
+### 4.3 验证 API
 
 ```bash
 # 健康检查
@@ -80,7 +142,7 @@ curl "http://127.0.0.1:8000/price/forecast?country=DE_LU&hours=12"
 curl "http://127.0.0.1:8000/price/forecast?country=DE_LU&hours=48"
 ```
 
-### 3.4 导入到 WatsonX Orchestrate
+### 4.4 导入到 WatsonX Orchestrate
 
 1. 下载 OpenAPI: `curl http://127.0.0.1:8000/openapi.json -o openapi_price.json`
 2. 在 Orchestrate 中选择 "Import from OpenAPI"
@@ -88,7 +150,7 @@ curl "http://127.0.0.1:8000/price/forecast?country=DE_LU&hours=48"
 
 ---
 
-## 4. WatsonX Orchestrate 测试提示词
+## 5. WatsonX Orchestrate 测试提示词
 
 ### 基础测试
 ```
@@ -108,58 +170,46 @@ Get price forecast with country DE_LU, hours 48
 What are the Day-Ahead prices and FCR prices for Austria?
 ```
 
-### 预期输出示例
-```json
-{
-  "country": "DE_LU",
-  "forecast_hours": 12,
-  "day_ahead": [
-    {"timestamp": "2026-01-31T22:00:00.000", "DE_LU": 109.8},
-    {"timestamp": "2026-01-31T22:15:00.000", "DE_LU": 108.99}
-  ],
-  "fcr": [
-    {"timestamp": "2026-01-31T20:00:00.000", "DE": 115.2}
-  ]
-}
-```
-
 ---
 
-## 5. 文件索引
+## 6. 文件索引
 
 | 文件 | 说明 |
 |------|------|
 | [price.py](../../src/backend/services/price.py) | Price Service 完整实现 |
+| [regelleistung_loader.py](../../src/backend/services/regelleistung_loader.py) | **新增** XLSX 数据加载器 |
 | [main.py](../../src/backend/main.py) | FastAPI 入口（含 /price/forecast） |
-| [openapi_price.json](../../openapi_price.json) | WatsonX 导入用 OpenAPI 规范 |
+| [data/prices/regelleistung/](../../data/prices/regelleistung/) | Regelleistung XLSX 数据文件 |
 | [A_weather_service_summary.md](./A_weather_service_summary.md) | Weather Service 参考 |
 
 ---
 
-## 6. 注意事项
+## 7. 注意事项
 
 > ⚠️ **ngrok URL 每次重启会变化**，需要：
 > 1. 更新 `main.py` 中的 `servers` URL
 > 2. 重新生成 `openapi.json`
 > 3. 重新导入 WatsonX Orchestrate
 
-> 💡 **真实数据**: DA 价格来自 Energy-Charts API (Bundesnetzagentur/SMARD.de)，已验证与网页显示完全一致
+> 💡 **Regelleistung 数据更新**: 
+> - 每天 08:30 后从网站下载最新 Results XLSX
+> - 文件命名格式：`RESULT_OVERVIEW_*_YYYY-MM-DD_YYYY-MM-DD.xlsx`
 
-> 📊 **模拟数据特征**:
-> - DA: 已用真实 API 替代
-> - FCR: €60-150/MW 范围 (按4小时块)
-> - aFRR: 跟随 DA 趋势，波动更大
+> 📊 **数据回退机制**: 
+> - 如果请求日期无数据，自动使用最近可用日期
+> - 完全无数据时回退到模拟数据
 
 ---
 
-## 7. 与 Blueprint 对比
+## 8. 与 Blueprint 对比
 
 | Blueprint 要求 | 实现状态 |
 |---------------|---------|
 | `PriceClient` | ✅ 完整实现 |
 | `PriceData` | ✅ 完整实现 + `to_gridkey_format()` |
-| `PriceForecastFallback` | ✅ 框架实现 |
+| `PriceForecastFallback` | ✅ 完整实现 (Regelleistung 集成) |
 | `PriceService` | ✅ 完整实现 |
 | `MarketPrices` 容器 | ✅ 额外实现 |
-| ENTSO-E API 支持 | ⚠️ 需 Token (1-3天申请) |
-| Energy-Charts API | ✅ 免费替代方案 |
+| DA 真实数据 | ✅ Energy-Charts API |
+| FCR 真实数据 | ✅ Regelleistung XLSX |
+| aFRR 真实数据 | ✅ Regelleistung XLSX |
