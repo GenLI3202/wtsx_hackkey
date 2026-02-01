@@ -114,9 +114,7 @@ Hour (CET)    Weather      Temp    PV (kWh)    Wind (kWh)
 > 2. 重新生成 `openapi_weather.json`
 > 3. 重新导入 WatsonX Orchestrate
 
-> 💡 **API Key 已配置**: 
-> - OpenWeatherMap API Key: `2ea500cef25648f1b117ec98ede97d2e`
-> - 配置位置: `.env` 文件中的 `OPENWEATHER_API_KEY`
+> 💡 **API Key 配置**: 请在 `.env` 文件中配置 `OPENWEATHER_API_KEY`
 
 ---
 
