@@ -43,6 +43,20 @@
 | **aFRR Capacity** | Regelleistung.net XLSX | 4小时 | ✅ **真实数据** |
 | **aFRR Energy** | Regelleistung.net XLSX | 15分钟 | ✅ **真实数据** |
 
+### API 详情
+
+**Day-Ahead 价格 (Energy-Charts)**
+- API: `https://api.energy-charts.info/price?bzn=DE-LU`
+- 来源: Bundesnetzagentur / SMARD.de
+- 免费: ✅ 无需认证
+- 文档: https://api.energy-charts.info/
+
+**FCR / aFRR 价格 (Regelleistung)**
+- 网站: https://www.regelleistung.net/apps/datacenter/
+- 格式: XLSX 文件下载
+- 发布时间: D-1 08:30 (容量市场), D+1 (能量市场)
+- 免费: ✅ 无需认证
+
 ### 数据验证结果 (2026-02-01)
 
 ```

@@ -114,4 +114,26 @@ Hour (CET)    Weather      Temp    PV (kWh)    Wind (kWh)
 > 2. 重新生成 `openapi_weather.json`
 > 3. 重新导入 WatsonX Orchestrate
 
-> 💡 **API Key**: 当前使用 demo_key，获取真实数据需配置 `.env` 中的 `OPENWEATHER_API_KEY`
+> 💡 **API Key 已配置**: 
+> - OpenWeatherMap API Key: `2ea500cef25648f1b117ec98ede97d2e`
+> - 配置位置: `.env` 文件中的 `OPENWEATHER_API_KEY`
+
+---
+
+## 6. 数据来源与验证 (2026-02-01 更新)
+
+### 数据来源
+| 数据 | 来源 | 免费 | 状态 |
+|------|------|------|------|
+| 气象预报 | OpenWeatherMap API | ✅ (1000次/天) | ✅ 已验证 |
+
+### 验证结果 (Munich, 2026-02-01 10:17 UTC)
+
+| 时间 (UTC) | 温度 | 云量 | 验证 |
+|-----------|------|------|------|
+| 12:00 | 0.5°C | 100% | ✅ |
+| 13:00 | 0.9°C | 100% | ✅ |
+| 14:00 | 1.2°C | 100% | ✅ |
+
+> **与 OpenWeatherMap 网站对比一致** - API 返回真实天气数据
+
