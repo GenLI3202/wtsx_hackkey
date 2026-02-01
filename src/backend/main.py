@@ -1,14 +1,15 @@
 from fastapi import FastAPI, Query
-from typing import Optional, List
-from pydantic import BaseModel
+from typing import Optional, List, Dict
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 from services.weather import WeatherService, AssetConfig, GenerationForecast
 from services.price import PriceService
 from services.battery import BatteryService
-from services.optimizer import OptimizerService
+from services.battery import BatteryService
+# OptimizerService imported later from src.backend.services.optimizer
 from agent.client import WatsonXAgent
-import config
+import env_config as config
 
 app = FastAPI(
     title="GridKey BESS Optimizer API",
@@ -24,7 +25,7 @@ api_key = config.OPENWEATHER_API_KEY or "demo_key"
 weather_service = WeatherService(api_key=api_key)
 price_service = PriceService()
 battery_service = BatteryService()
-optimizer_service = OptimizerService(api_url="http://localhost:8000")
+battery_service = BatteryService()
 agent = WatsonXAgent()
 
 
@@ -42,6 +43,13 @@ class WeatherForecastResponse(BaseModel):
     location: str
     generated_at: datetime
     timeline: List[GenerationPointResponse]
+
+
+# ============================================================================
+# Optimizer Models
+# ============================================================================
+
+# Optimizer Models have been moved to services.optimizer
 
 
 # ============================================================================
@@ -115,4 +123,59 @@ def get_price_forecast(
         "afrr_capacity": prices.afrr_capacity.to_gridkey_format() if prices.afrr_capacity else None,
         "afrr_energy": prices.afrr_energy.to_gridkey_format() if prices.afrr_energy else None,
     }
+
+
+# ============================================================================
+# Optimizer Service Endpoints
+# ============================================================================
+
+# --- Pure Optimizer API (Strict Guide Compliance) ---
+
+# from src.backend.services.optimizer import OptimizerService, OptimizeRequest 
+from services.optimizer import OptimizerService, OptimizeRequest
+
+@app.post("/api/v1/optimize", tags=["Optimizer"], summary="Flexible Horizon Optimization")
+def optimize_flexible(request: OptimizeRequest):
+    """
+    optimize_flexible
+    
+    Pure logic optimization. 
+    Accepts market prices and renewable generation.
+    Returns optimal schedule.
+    """
+    optimizer = OptimizerService()
+    try:
+        result = optimizer.run_optimization(request)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Optimization error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Optimizer Error")
+
+@app.post("/api/v1/optimize-mpc", tags=["Optimizer"], summary="MPC Rolling Horizon (12h)")
+def optimize_mpc(request: OptimizeRequest):
+    """
+    optimize_mpc
+    
+    Fixed 12h horizon using Rolling Horizon strategy.
+    Requires 48 data points (15-min resolution).
+    """
+    optimizer = OptimizerService()
+    
+    # Enforce 12h data length
+    if len(request.market_prices.day_ahead) != 48:
+        raise HTTPException(status_code=422, detail="MPC endpoint requires exactly 48 data points (12h)")
+        
+    try:
+        # For this hackathon, we alias MPC to the main logic but enforce the horizon
+        request.time_horizon_hours = 12
+        result = optimizer.run_optimization(request)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"MPC Optimization error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Optimizer Error")
+
 

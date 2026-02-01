@@ -1,0 +1,297 @@
+afrr_ev_weights_config:
+  description: aFRR energy activation probabilities for Expected Value (EV) weighting
+  version: 2.0-2026-Jan-17
+  reference: Derived from data/phase2_processed/metadata.json (zero_pct statistics)
+  data_source: TechArena2025 Phase 2 aFRR energy price data (2024 full year)
+  impact_analysis:
+    without_ev_weighting:
+      behavior: Model assumes 100% activation of aFRR bids
+      consequence: May over-allocate to aFRR-E market
+      objective: Overestimates revenue (optimistic)
+    with_ev_weighting:
+      behavior: Model accounts for actual activation probability from historical data
+      consequence: More realistic allocation between DA, FCR, aFRR-C, and aFRR-E
+      objective: Realistic expected revenue based on market statistics
+  balanced_activation:
+    description: Balanced aFRR-E activation scenario based on actual market statistics (2025-11-09)
+    source: TSO data and market reports for DE, AT, CH, HU, CZ (2021-2024 aggregated)
+    methodology: Represents actual pos/neg activation distribution when aFRR is called
+    note: These values represent the split WHEN activated, not the probability of activation
+    country_specific:
+      DE:
+        positive: 0.47
+        negative: 0.53
+        description: Germany - Slightly more negative activation (53% neg, 47% pos)
+      AT:
+        positive: 0.48
+        negative: 0.52
+        description: Austria - Similar to Germany, aligned with APG-50Hertz cooperation
+      CH:
+        positive: 0.5
+        negative: 0.5
+        description: Switzerland - Perfectly balanced activation (50/50 split)
+      HU:
+        positive: 0.46
+        negative: 0.54
+        description: Hungary - Slightly more negative activation (54% neg, 46% pos)
+      CZ:
+        positive: 0.48
+        negative: 0.52
+        description: Czech Republic - Balanced with slight negative bias (52% neg, 48% pos)
+    default_values:
+      positive: 0.48
+      negative: 0.52
+      description: Default balanced activation for countries without specific data
+    implementation_note: Use these values for more realistic market modeling when EV weighting is enabled
+  historical_activation:
+    description: EV weighting factors based on historical zero price percentages for aFRR-E
+    source: Calculated from 2024 aFRR-E price data (TechArena2025 Phase 2)
+    methodology: w = 1 - (zero_price_pct / 100) for pos and neg directions
+    purpose: Adjust aFRR energy bids to reflect actual activation likelihood
+    note: Lower w values indicate lower activation probability, leading to more conservative bidding
+    country_specific:
+      DE:
+        positive: 0.9419
+        negative: 0.7734
+        zero_pct_pos: 5.806010928961749
+        zero_pct_neg: 22.663365209471767
+        description: Germany - High positive activation (94%), moderate negative (77%)
+      AT:
+        positive: 0.9121
+        negative: 0.6648
+        zero_pct_pos: 8.785860655737705
+        zero_pct_neg: 33.51832877959927
+        description: Austria - High positive activation (91%), moderate negative (66%)
+      CH:
+        positive: 0.9926
+        negative: 0.612
+        zero_pct_pos: 0.7371357012750456
+        zero_pct_neg: 38.80066029143898
+        description: Switzerland - Very high positive activation (99%), moderate negative (61%)
+      HU:
+        positive: 0.407
+        negative: 0.1941
+        zero_pct_pos: 59.295309653916206
+        zero_pct_neg: 80.59255464480874
+        description: Hungary - Low activation for both directions (41% pos, 19% neg)
+      CZ:
+        positive: 0.9676
+        negative: 0.7623
+        zero_pct_pos: 3.2388433515482693
+        zero_pct_neg: 23.767645719489984
+        description: Czech Republic - High activation (97% pos, 76% neg)
+  usage_notes:
+  - EV weighting is OPTIONAL - disable for conservative bidding (w=1.0)
+  - Enable for more realistic profit estimation and market allocation
+  - "Lower w values -> model bids more aggressively to aFRR-E (compensates for low activation)"
+  - Compare results with/without EV weighting using compare_ev_weighting.py
+  time_varying:
+    enabled: false
+    description: Set to true when hourly/seasonal activation data becomes available
+    future_enhancement: Time-of-day and seasonal variation in activation probabilities
+aging_config:
+  cyclic_aging:
+    description: Marginal cost of discharging 1 kWh from different SOC segments, based on a power-law model (b=2) and a 100%
+      DoD cycle life of 3840 cycles.
+    unit: EUR/kWh
+    num_segments_note: Array length determines number of segments. 6 segments (current) = 40% fewer binaries, 2-3x faster
+      solve. 10 segments (commented below) = higher accuracy.
+    costs:
+    - 0.0087
+    - 0.026
+    - 0.0434
+    - 0.0608
+    - 0.0782
+    - 0.0955
+    costs_10_segments_alternative:
+    - 0.0052
+    - 0.0156
+    - 0.026
+    - 0.0364
+    - 0.0469
+    - 0.0573
+    - 0.0677
+    - 0.0781
+    - 0.0885
+    - 0.099
+  calendar_aging:
+    description: Breakpoints for the piecewise-linear calendar aging cost function (SOS2), derived from Collath et al. (2023).
+    unit:
+      soc_kwh: kWh
+      cost_eur_hr: EUR/hr
+    breakpoints:
+    - soc_kwh: 0
+      cost_eur_hr: 1.79
+    - soc_kwh: 1118
+      cost_eur_hr: 2.15
+    - soc_kwh: 2236
+      cost_eur_hr: 3.58
+    - soc_kwh: 3354
+      cost_eur_hr: 6.44
+    - soc_kwh: 4472
+      cost_eur_hr: 10.73
+  alpha_sweep:
+    default_values:
+    - 0.1
+    - 0.2
+    - 0.5
+    - 1.0
+    - 1.5
+    - 2.0
+    - 2.5
+    - 3.0
+    fine_search_values:
+    - 0.1
+    - 0.2
+    - 0.3
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.7
+    - 0.8
+    - 0.9
+    - 1.0
+    - 1.2
+    - 1.5
+    - 1.8
+    - 2.0
+    - 2.5
+    - 3.0
+    coarse_search_values:
+    - 0.5
+    - 1.0
+    - 2.0
+    - 3.0
+    min: 0.1
+    max: 3.0
+    step: 0.1
+    description: Alpha parameter sweep configuration for meta-optimization
+  require_sequential_segment_activation: true
+  lifo_epsilon_kwh: 0.5
+  optimization_notes:
+    require_sequential_segment_activation: Setting to false disables charge/discharge activation binaries to improve solve
+      speed
+    lifo_epsilon_kwh: Tolerance for LIFO fullness constraint. Larger value = faster solve (larger feasible region). 5 kWh
+      = ~1.1% of segment capacity
+    performance: With enforce_segment_binary=false and epsilon=5.0, expect 3-5x speedup vs strict binary enforcement
+investment_config:
+  description: Default financial parameters for investment optimization ROI calculation (update per country)
+  investment_eur_per_kwh: 200
+  project_lifetime_years: 10
+  country_specific:
+    DE:
+      wacc: 0.083
+      inflation: 0.02
+      description: Germany - placeholder values
+    AT:
+      wacc: 0.083
+      inflation: 0.033
+      description: Austria - placeholder values
+    CH:
+      wacc: 0.083
+      inflation: 0.01
+      description: Switzerland - typically lower rates
+    CZ:
+      wacc: 0.12
+      inflation: 0.029
+      description: Czech Republic - placeholder values
+    HU:
+      wacc: 0.15
+      inflation: 0.046
+      description: Hungary - typically higher rates
+mpc_config:
+  description: Configuration for MPC-based rolling horizon optimization. Core MPC algorithm parameters only. For test scenarios
+    (country, duration, alpha sweep, visualization), see mpc_test_config.json
+  version: '1.0'
+  mpc_parameters:
+    horizon_hours: 36
+    execution_hours: 24
+    duration_days: 365
+    initial_soc_fraction: 0.5
+    validate_constraints: false
+    description: 'MPC rolling horizon settings. horizon_hours: optimization lookahead window. execution_hours: committed/executed
+      window (receding horizon step). initial_soc_fraction: starting battery SOC (0.0-1.0). validate_constraints: post-solve
+      validation (disabled for speed)'
+  notes:
+    test_scenarios: Configure test scenarios in mpc_test_config.json
+    solver_settings: Solver timeouts and tolerances in solver_config.json
+    degradation: Degradation model parameters in aging_config.json
+mpc_test_config:
+  description: Configuration for MPC testing scenarios and validation
+  version: '1.0'
+  test_scenario:
+    country: AT
+    c_rate: 0.5
+    data_source: preprocessed
+    description: 'Basic test scenario settings. Options: data_source=''preprocessed'' (fast) or ''excel'' (submission)'
+  alpha_settings:
+    mode: single
+    single_alpha: 1.0
+    sweep_range:
+      min: 0.5
+      max: 1.5
+      step: 0.1
+    description: Alpha (degradation price weight) settings. mode='single' uses single_alpha, mode='sweep' uses sweep_range
+      with MetaOptimizer
+  meta_optimizer:
+    enabled: false
+    n_jobs: 4
+    wacc: 0.08
+    inflation_rate: 0.02
+    project_lifetime_years: 10
+    description: Meta-optimizer for finding optimal alpha via ROI maximization
+  mpc_execution:
+    max_iterations: null
+    description: Maximum MPC iterations to run. null=run full duration, integer=limit iterations for testing
+  visualization:
+    enable_standard_plots: true
+    enable_mpc_plots: true
+    mpc_plot_options:
+      iteration_boundaries: true
+      iteration_performance: true
+      state_continuity: true
+    save_format: html
+    description: 'Visualization settings. save_format options: ''html'' (interactive) or ''png'' (static)'
+  output:
+    save_results: true
+    base_output_dir: validation_results/mpc_validation
+    auto_generate_run_name: true
+    custom_run_name: null
+    description: 'Output settings. If auto_generate_run_name=true, uses format: mpc_{country}_{duration}d_alpha{alpha}. Otherwise
+      uses custom_run_name'
+  alpha_meta_optimization:
+    enabled: false
+    test_mode: true
+    test_days: 14
+    full_days: 365
+    alpha_range:
+      min: 0.5
+      max: 1.5
+      step: 0.1
+    parallel_execution:
+      enabled: true
+      n_jobs: 4
+    financial_params:
+      wacc: 0.08
+      inflation_rate: 0.02
+      project_lifetime_years: 10
+    output_dir: validation_results/alpha_meta_optimization
+    description: Alpha meta-optimization configuration. Use with p2e_alpha_meta_optimization.py script for parameter tuning
+      and Pareto analysis.
+solver_config:
+  default_solver: cplex
+  solver_time_limit_sec: 1200
+  solver_options:
+    gurobi:
+      TimeLimit: 1200
+      MIPGap: 0.01
+      Threads: 0
+      MIPFocus: 0
+      description: 'Threads: 0 = use all available cores; MIPFocus: 1=feasibility, 2=optimality, 3=bound;  solver options
+        for balancing speed and solution quality'
+    cplex:
+      timelimit: 1200
+      mip_tolerances_mipgap: 0.01
+    highs:
+      time_limit: 1500.0
+      mip_rel_gap: 0.01
