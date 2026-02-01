@@ -114,14 +114,41 @@ def get_price_forecast(
         forecast_hours=hours
     )
     
+    # Helper to safely extract flat list from PriceData
+    def get_price_list(p_data, cty, suffix=""):
+        if not p_data or not p_data.prices:
+            return []
+        
+        # Determine key (DE_LU vs DE)
+        # Mock generators use "DE" for FCR/aFRR if input was DE_LU
+        # DayAhead uses DE_LU
+        key = cty
+        if p_data.market_type != "day_ahead":
+            key = cty.replace("_LU", "")
+        
+        target_key = f"{key}{suffix}"
+        
+        # Check specific key
+        if target_key in p_data.prices:
+            return p_data.prices[target_key]
+        
+        # Fallback to first available key if specific not found (e.g. simple mock)
+        if p_data.prices:
+            return list(p_data.prices.values())[0]
+        return []
+
     return {
         "country": prices.country,
         "forecast_hours": prices.forecast_hours,
         "retrieved_at": prices.retrieved_at.isoformat(),
-        "day_ahead": prices.day_ahead.to_gridkey_format() if prices.day_ahead else None,
-        "fcr": prices.fcr.to_gridkey_format() if prices.fcr else None,
-        "afrr_capacity": prices.afrr_capacity.to_gridkey_format() if prices.afrr_capacity else None,
-        "afrr_energy": prices.afrr_energy.to_gridkey_format() if prices.afrr_energy else None,
+        
+        # Flattened Arrays for Optimizer
+        "day_ahead": get_price_list(prices.day_ahead, country),
+        "fcr": get_price_list(prices.fcr, country),
+        "afrr_energy_pos": get_price_list(prices.afrr_energy, country, "_Pos"),
+        "afrr_energy_neg": get_price_list(prices.afrr_energy, country, "_Neg"),
+        "afrr_capacity_pos": get_price_list(prices.afrr_capacity, country, "_Pos"),
+        "afrr_capacity_neg": get_price_list(prices.afrr_capacity, country, "_Neg"),
     }
 
 
@@ -132,9 +159,9 @@ def get_price_forecast(
 # --- Pure Optimizer API (Strict Guide Compliance) ---
 
 # from src.backend.services.optimizer import OptimizerService, OptimizeRequest 
-from services.optimizer import OptimizerService, OptimizeRequest
+from services.optimizer import OptimizerService, OptimizeRequest, OptimizeResponse
 
-@app.post("/api/v1/optimize", tags=["Optimizer"], summary="Flexible Horizon Optimization")
+@app.post("/api/v1/optimize", tags=["Optimizer"], summary="Flexible Horizon Optimization", response_model=OptimizeResponse)
 def optimize_flexible(request: OptimizeRequest):
     """
     optimize_flexible
@@ -153,7 +180,7 @@ def optimize_flexible(request: OptimizeRequest):
         logger.error(f"Optimization error: {e}")
         raise HTTPException(status_code=500, detail="Internal Optimizer Error")
 
-@app.post("/api/v1/optimize-mpc", tags=["Optimizer"], summary="MPC Rolling Horizon (12h)")
+@app.post("/api/v1/optimize-mpc", tags=["Optimizer"], summary="MPC Rolling Horizon (12h)", response_model=OptimizeResponse)
 def optimize_mpc(request: OptimizeRequest):
     """
     optimize_mpc

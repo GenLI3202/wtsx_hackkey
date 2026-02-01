@@ -60,8 +60,35 @@ class OptimizeRequest(BaseModel):
         if len(v.afrr_energy_pos) != len_da or len(v.afrr_energy_neg) != len_da:
             raise ValueError(f"15-min price arrays length mismatch! DA:{len_da}, aFRR+:{len(v.afrr_energy_pos)}")
         return v
+# --- Response Models for OpenAPI ---
 
-# --- Adapter Service Class ---
+class ScheduleEntry(BaseModel):
+    timestamp: str
+    action: str
+    power_kw: float
+    market: str
+    soc_after: float
+    renewable_action: Optional[str] = None
+    renewable_power_kw: Optional[float] = None
+
+class OptimizationData(BaseModel):
+    objective_value: float
+    net_profit: float
+    revenue_breakdown: Dict[str, float]
+    degradation_cost: float
+    cyclic_aging_cost: float
+    calendar_aging_cost: float
+    schedule: List[ScheduleEntry]
+    soc_trajectory: List[float]
+    solve_time_seconds: float
+    solver_name: str
+    model_type: str
+    status: str
+    renewable_utilization: Optional[Dict[str, float]] = None
+
+class OptimizeResponse(BaseModel):
+    status: str
+    data: OptimizationData
 
 class OptimizerService:
     """
@@ -132,53 +159,88 @@ class OptimizerService:
             daily_cycle_limit=1.0 # Default
         )
         
-        # 3. Format Output (GridKey MILP Template)
-        # The engine returns an OptimizationResult Pydantic object.
-        # We need to serialise this to the JSON format expected by WatsonX.
+        # 3. Format Output (Strict User Guide Compliance)
         
-        # Construct simplified schedule list
-        schedule = []
+        # Recommendations Logic (Optional addition, but keep it if useful, placed inside data?)
+        # User Guide doesn't explicitly mention 'recommendations' in the core table, 
+        # but says "Response Structure: wrapper + internal data". 
+        # We will strictly map to the "data" fields requested:
+        # - objective_value
+        # - net_profit
+        # - revenue_breakdown (da, afrr_energy, fcr, afrr_capacity)
+        # - degradation_cost (cyclic, calendar)
+        # - schedule
+        # - soc_trajectory
+        # - solver metadata
+        
+        # Revenue Breakdown
+        # GridKey engine result usually groups revenue. Let's assume result_obj has these or we calculate/extract them.
+        # For now, we might need to rely on what result_obj exposes.
+        # If result_obj is standard GridKey OptimizationResult, it has `financials`.
+        
+        revenue_bd = {
+            "da": getattr(result_obj, "revenue_da", 0.0), # Fallback if direct attr missing, usually in `revenues` dict
+            "afrr_energy": getattr(result_obj, "revenue_afrr_energy", 0.0),
+            "fcr": getattr(result_obj, "revenue_fcr", 0.0),
+            "afrr_capacity": getattr(result_obj, "revenue_afrr_capacity", 0.0),
+        }
+        # If result_obj has a `revenues` dict property, use that:
+        if hasattr(result_obj, "revenues") and isinstance(result_obj.revenues, dict):
+            revenue_bd["da"] = result_obj.revenues.get("day_ahead", 0.0)
+            revenue_bd["afrr_energy"] = result_obj.revenues.get("afrr_energy", 0.0)
+            revenue_bd["fcr"] = result_obj.revenues.get("fcr", 0.0)
+            revenue_bd["afrr_capacity"] = result_obj.revenues.get("afrr_capacity", 0.0)
+
+        # Schedule Formatting
+        schedule_formatted = []
+        soc_trajectory = []
+        
         for entry in result_obj.schedule:
-            schedule.append({
-                "time_step": schedule.index(schedule[-1]) + 1 if schedule else 0, # Re-index
+            # Flatten schedule item
+            item = {
                 "timestamp": entry.timestamp.isoformat(),
                 "action": entry.action,
                 "power_kw": entry.power_kw,
-                "soc_pct": round(entry.soc_after * 100, 2),
-                
-                # Market breakdown (simplified mapping)
                 "market": entry.market,
+                "soc_after": entry.soc_after
+            }
+            if entry.renewable_action:
+                item["renewable_action"] = entry.renewable_action
+            if entry.renewable_power_kw is not None:
+                item["renewable_power_kw"] = entry.renewable_power_kw
                 
-                # Renewable logic
-                "renewable_action": entry.renewable_action,
-                "renewable_power_kw": entry.renewable_power_kw
-            })
+            schedule_formatted.append(item)
+            soc_trajectory.append(entry.soc_after)
             
-        # Recommendations Logic (Restored)
-        # Since the pure engine doesn't generate text, we act as the "Analyst" here.
-        profit = result_obj.net_profit
-        cycles = result_obj.cyclic_aging_cost / (10.0 * 0.02) if result_obj.cyclic_aging_cost > 0 else 0 # Approx
+        data_block = {
+            # Core Metrics
+            "objective_value": round(result_obj.objective_value, 2),
+            "net_profit": round(result_obj.net_profit, 2),
+            
+            # Breakdown
+            "revenue_breakdown": revenue_bd,
+            
+            # Costs
+            "degradation_cost": round(result_obj.degradation_cost, 2),
+            "cyclic_aging_cost": round(result_obj.cyclic_aging_cost, 2),
+            "calendar_aging_cost": round(result_obj.calendar_aging_cost, 2),
+            
+            # Trajectories
+            "schedule": schedule_formatted,
+            "soc_trajectory": soc_trajectory,
+            
+            # Logic/Solver Metadata
+            "solve_time_seconds": result_obj.solve_time_seconds,
+            "solver_name": "highs", # Hardcoded or from result_obj
+            "model_type": request_data.model_type,
+            "status": result_obj.status
+        }
         
-        recommendations = (
-            f"Optimization Successful.\n"
-            f"• **Objective**: Maximize profit ({profit:.2f} EUR)\n"
-            f"• **Strategy**: {len(schedule)} steps planned over {horizon_hours} hours.\n"
-            f"• **Battery Usage**: ~{cycles:.1f} cycles projected.\n"
-        )
-        if request_data.renewable_generation:
-             recommendations += "• **Renewables**: Integrated PV/Wind forecast into decision logic."
+        # Renewable Utilization (Optional)
+        if hasattr(result_obj, "renewable_utilization") and result_obj.renewable_utilization:
+             data_block["renewable_utilization"] = result_obj.renewable_utilization
 
         return {
-            "metadata": {
-                "status": result_obj.status,
-                "solve_time_ms": int(result_obj.solve_time_seconds * 1000),
-                "model": request_data.model_type
-            },
-            "summary": {
-                "total_revenue_eur": round(result_obj.objective_value, 2),
-                "net_profit_eur": round(result_obj.net_profit, 2),
-                "degradation_cost_eur": round(result_obj.degradation_cost, 2)
-            },
-            "recommendations": recommendations,
-            "schedule": [entry.model_dump() for entry in result_obj.schedule] # Use Pydantic dump for clean list
+            "status": "success",
+            "data": data_block
         }
