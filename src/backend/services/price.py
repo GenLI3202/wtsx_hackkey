@@ -530,14 +530,20 @@ class PriceForecastFallback:
     '''
     价格预测回退机制
   
-    - Purpose: 当实时 API 不可用时，使用历史数据或简单预测
+    - Purpose: 当实时 API 不可用时，使用 Regelleistung 历史数据
     - Input: country, market_type, target_date
-    - Output: PriceData（基于历史同期数据 + 时间偏移模拟"实时"）
-    - Notes: 从本地 data/json/ 加载历史数据作为代理
+    - Output: PriceData（基于本地 XLSX 数据）
+    - Notes: 优先使用 regelleistung.net 下载的真实数据，无数据时回退到模拟
     '''
     
-    def __init__(self, data_dir: str = "data/json"):
-        self.data_dir = data_dir
+    def __init__(self, data_dir: str = None):
+        self.regelleistung_loader = None
+        # 延迟导入避免循环依赖
+        try:
+            from services.regelleistung_loader import RegelleistungLoader
+            self.regelleistung_loader = RegelleistungLoader(data_dir)
+        except ImportError:
+            print("Warning: RegelleistungLoader not available, using mock data")
     
     def get_fallback_prices(
         self, 
@@ -548,14 +554,82 @@ class PriceForecastFallback:
         """
         获取回退价格数据
         
-        策略：使用去年同一天的历史数据，时间戳调整到今年
+        策略：
+        1. 优先从 Regelleistung XLSX 文件加载真实数据
+        2. 无数据时使用最近可用日期的数据
+        3. 完全无数据时回退到模拟数据
         """
-        # TODO: 实现历史数据加载
-        # 当前返回模拟数据
+        if self.regelleistung_loader is not None:
+            date = target_date.date() if isinstance(target_date, datetime.datetime) else target_date
+            
+            # 获取可用日期
+            available_dates = self.regelleistung_loader.list_available_dates()
+            
+            # 如果请求日期有数据，直接使用
+            if date in available_dates:
+                data_date = date
+            elif available_dates:
+                # 使用最近的可用日期
+                data_date = max(available_dates)
+                print(f"No data for {date}, using {data_date}")
+            else:
+                data_date = None
+            
+            if data_date is not None:
+                try:
+                    prices = self.regelleistung_loader.load_all_prices(data_date)
+                    ps_format = self.regelleistung_loader.to_price_service_format(prices)
+                    
+                    # 根据 market_type 返回对应数据
+                    if market_type == "fcr" and ps_format['fcr']:
+                        return self._convert_to_pricedata(
+                            ps_format['fcr'], market_type, country, 240, "EUR/MW"
+                        )
+                    elif market_type == "afrr_capacity" and ps_format['afrr_capacity']:
+                        return self._convert_to_pricedata(
+                            ps_format['afrr_capacity'], market_type, country, 240, "EUR/MW"
+                        )
+                    elif market_type == "afrr_energy" and ps_format['afrr_energy']:
+                        return self._convert_to_pricedata(
+                            ps_format['afrr_energy'], market_type, country, 15, "EUR/MWh"
+                        )
+                except Exception as e:
+                    print(f"Error loading Regelleistung data: {e}")
+        
+        # 回退到模拟数据
         mock_client = PriceClient()
         end_time = target_date + timedelta(hours=48)
-        
         return mock_client.get_prices(country, market_type, target_date, end_time)
+    
+    def _convert_to_pricedata(
+        self, 
+        data: List[Dict], 
+        market_type: str, 
+        country: str,
+        resolution_minutes: int,
+        unit: str
+    ) -> PriceData:
+        """将 Regelleistung 格式转换为 PriceData"""
+        timestamps = []
+        prices_dict = {}
+        
+        for record in data:
+            ts = datetime.datetime.fromisoformat(record['timestamp'].replace('.000', ''))
+            timestamps.append(ts)
+            
+            for key, value in record.items():
+                if key != 'timestamp':
+                    if key not in prices_dict:
+                        prices_dict[key] = []
+                    prices_dict[key].append(value)
+        
+        return PriceData(
+            timestamps=timestamps,
+            prices=prices_dict,
+            market_type=market_type,
+            resolution_minutes=resolution_minutes,
+            unit=unit
+        )
 
 
 # ==============================================================================
