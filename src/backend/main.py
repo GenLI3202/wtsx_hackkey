@@ -1,14 +1,15 @@
 from fastapi import FastAPI, Query
-from typing import Optional, List
-from pydantic import BaseModel
+from typing import Optional, List, Dict
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 from services.weather import WeatherService, AssetConfig, GenerationForecast
 from services.price import PriceService
 from services.battery import BatteryService
-from services.optimizer import OptimizerService
+from services.battery import BatteryService
+# OptimizerService imported later from src.backend.services.optimizer
 from agent.client import WatsonXAgent
-import config
+import env_config as config
 
 app = FastAPI(
     title="GridKey BESS Optimizer API",
@@ -24,7 +25,7 @@ api_key = config.OPENWEATHER_API_KEY or "demo_key"
 weather_service = WeatherService(api_key=api_key)
 price_service = PriceService()
 battery_service = BatteryService()
-optimizer_service = OptimizerService(api_url="http://localhost:8000")
+battery_service = BatteryService()
 agent = WatsonXAgent()
 
 
@@ -42,6 +43,13 @@ class WeatherForecastResponse(BaseModel):
     location: str
     generated_at: datetime
     timeline: List[GenerationPointResponse]
+
+
+# ============================================================================
+# Optimizer Models
+# ============================================================================
+
+# Optimizer Models have been moved to services.optimizer
 
 
 # ============================================================================
@@ -106,13 +114,95 @@ def get_price_forecast(
         forecast_hours=hours
     )
     
+    # Helper to safely extract flat list from PriceData
+    def get_price_list(p_data, cty, suffix=""):
+        if not p_data or not p_data.prices:
+            return []
+        
+        # Determine key (DE_LU vs DE)
+        # Mock generators use "DE" for FCR/aFRR if input was DE_LU
+        # DayAhead uses DE_LU
+        key = cty
+        if p_data.market_type != "day_ahead":
+            key = cty.replace("_LU", "")
+        
+        target_key = f"{key}{suffix}"
+        
+        # Check specific key
+        if target_key in p_data.prices:
+            return p_data.prices[target_key]
+        
+        # Fallback to first available key if specific not found (e.g. simple mock)
+        if p_data.prices:
+            return list(p_data.prices.values())[0]
+        return []
+
     return {
         "country": prices.country,
         "forecast_hours": prices.forecast_hours,
         "retrieved_at": prices.retrieved_at.isoformat(),
-        "day_ahead": prices.day_ahead.to_gridkey_format() if prices.day_ahead else None,
-        "fcr": prices.fcr.to_gridkey_format() if prices.fcr else None,
-        "afrr_capacity": prices.afrr_capacity.to_gridkey_format() if prices.afrr_capacity else None,
-        "afrr_energy": prices.afrr_energy.to_gridkey_format() if prices.afrr_energy else None,
+        
+        # Flattened Arrays for Optimizer
+        "day_ahead": get_price_list(prices.day_ahead, country),
+        "fcr": get_price_list(prices.fcr, country),
+        "afrr_energy_pos": get_price_list(prices.afrr_energy, country, "_Pos"),
+        "afrr_energy_neg": get_price_list(prices.afrr_energy, country, "_Neg"),
+        "afrr_capacity_pos": get_price_list(prices.afrr_capacity, country, "_Pos"),
+        "afrr_capacity_neg": get_price_list(prices.afrr_capacity, country, "_Neg"),
     }
+
+
+# ============================================================================
+# Optimizer Service Endpoints
+# ============================================================================
+
+# --- Pure Optimizer API (Strict Guide Compliance) ---
+
+# from src.backend.services.optimizer import OptimizerService, OptimizeRequest 
+from services.optimizer import OptimizerService, OptimizeRequest, OptimizeResponse
+
+@app.post("/api/v1/optimize", tags=["Optimizer"], summary="Flexible Horizon Optimization", response_model=OptimizeResponse)
+def optimize_flexible(request: OptimizeRequest):
+    """
+    optimize_flexible
+    
+    Pure logic optimization. 
+    Accepts market prices and renewable generation.
+    Returns optimal schedule.
+    """
+    optimizer = OptimizerService()
+    try:
+        result = optimizer.run_optimization(request)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Optimization error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Optimizer Error")
+
+@app.post("/api/v1/optimize-mpc", tags=["Optimizer"], summary="MPC Rolling Horizon (12h)", response_model=OptimizeResponse)
+def optimize_mpc(request: OptimizeRequest):
+    """
+    optimize_mpc
+    
+    Fixed 12h horizon using Rolling Horizon strategy.
+    Requires 48 data points (15-min resolution).
+    """
+    optimizer = OptimizerService()
+    
+    # Enforce 12h data length
+    if len(request.market_prices.day_ahead) != 48:
+        raise HTTPException(status_code=422, detail="MPC endpoint requires exactly 48 data points (12h)")
+        
+    try:
+        # For this hackathon, we alias MPC to the main logic but enforce the horizon
+        request.time_horizon_hours = 12
+        result = optimizer.run_optimization(request)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"MPC Optimization error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Optimizer Error")
+
 
